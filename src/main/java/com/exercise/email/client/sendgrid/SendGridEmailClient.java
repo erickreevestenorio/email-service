@@ -1,11 +1,12 @@
 package com.exercise.email.client.sendgrid;
 
 import com.exercise.email.client.EmailClient;
-import com.exercise.email.client.sendgrid.config.SendGridConfig;
 import com.exercise.email.client.sendgrid.model.request.SendGridSendEmailRequest;
+import com.exercise.email.entity.EmailClientConfig;
 import com.exercise.email.exception.handler.EmailClientException;
 import com.exercise.email.exception.handler.SendGridEmailClientException;
 import com.exercise.email.model.request.EmailRequest;
+import com.exercise.email.repository.EmailClientConfigRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,19 +45,21 @@ public class SendGridEmailClient implements EmailClient<SendGridSendEmailRequest
 
     private static final String URL_SEPARATOR = "/";
 
-    private final SendGridConfig sendGridConfig;
-
     private final ObjectMapper objectMapper;
+
+    private final EmailClientConfigRepository emailClientConfigRepository;
 
     @Override
     public boolean send(EmailRequest request) throws EmailClientException {
 
-        var sendGridSendEmailRequest = buildRequest(request);
+        var config = emailClientConfigRepository.findByName(getName()).orElseThrow(() -> new EmailClientException("email client not found"));
+
+        var sendGridSendEmailRequest = buildRequest(request, config);
 
         var urlBuilder = new StringJoiner(URL_SEPARATOR);
 
-        urlBuilder.add(sendGridConfig.getBaseUrl()).add(sendGridConfig.getVersion())
-                .add(sendGridConfig.getSendEndpoint());
+        urlBuilder.add(config.getBaseUrl()).add(config.getApiVersion())
+                .add(config.getSendEndpoint());
 
         try {
             var requestJsonString = objectMapper.writeValueAsString(sendGridSendEmailRequest);
@@ -65,7 +68,7 @@ public class SendGridEmailClient implements EmailClient<SendGridSendEmailRequest
                     .version(HttpClient.Version.HTTP_1_1)
                     .timeout(Duration.of(30, SECONDS))
                     .headers(CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .header(AUTHORIZATION, format("Bearer %s", sendGridConfig.getApiKey()))
+                    .header(AUTHORIZATION, format("Bearer %s", config.getApiSecret()))
                     .POST(HttpRequest.BodyPublishers.ofString(requestJsonString))
                     .build();
 
@@ -95,16 +98,16 @@ public class SendGridEmailClient implements EmailClient<SendGridSendEmailRequest
     }
 
     @Override
-    public SendGridSendEmailRequest buildRequest(EmailRequest request) {
+    public SendGridSendEmailRequest buildRequest(EmailRequest request, EmailClientConfig config) {
         var sendGridSendEmailRequest = SendGridSendEmailRequest.builder()
                 .subject(request.getSubject())
                 .from(SendGridSendEmailRequest.Email.builder()
-                        .emailAddress(sendGridConfig.getSenderEmail())
+                        .emailAddress(config.getSenderEmail())
                         .build())
                 .build();
 
         var content = SendGridSendEmailRequest.Content.builder()
-                .type(sendGridConfig.getContentType())
+                .type(config.getContentType())
                 .value(request.getBody())
                 .build();
 

@@ -1,10 +1,11 @@
 package com.exercise.email.client.mailgun;
 
 import com.exercise.email.client.EmailClient;
-import com.exercise.email.client.mailgun.config.MailgunEmailClientConfig;
+import com.exercise.email.entity.EmailClientConfig;
 import com.exercise.email.exception.handler.EmailClientException;
 import com.exercise.email.exception.handler.MailgunEmailClientException;
 import com.exercise.email.model.request.EmailRequest;
+import com.exercise.email.repository.EmailClientConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -23,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.StringJoiner;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 import static com.exercise.email.client.EmailClientEnum.MAILGUN;
 import static com.exercise.email.util.BasicAuthUtil.getBasicAuthenticationHeader;
 import static java.lang.String.format;
+import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 import static java.util.Objects.isNull;
 import static java.util.Optional.ofNullable;
@@ -50,30 +53,31 @@ public class MailgunEmailClient implements EmailClient<Map<String, String>> {
 
     private static final String EMAIL_SEPARATOR = ",";
 
-    private final MailgunEmailClientConfig mailgunEmailClientConfig;
+    private final EmailClientConfigRepository emailClientConfigRepository;
 
     @Override
     public boolean send(EmailRequest request) throws EmailClientException {
 
-        var mailgunRequest = buildRequest(request);
+        var config = emailClientConfigRepository.findByName(getName()).orElseThrow(() -> new EmailClientException("email client not found"));
+
+        var mailgunRequest = buildRequest(request, config);
 
         var form = mailgunRequest.entrySet()
                 .stream()
                 .map(e -> e.getKey() + "=" + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8)).collect(Collectors.joining("&"));
 
         var urlBuilder = new StringJoiner(URL_SEPARATOR);
-        urlBuilder.add(mailgunEmailClientConfig.getMailgunApiBaseUrl()).add(mailgunEmailClientConfig.getMailgunApiVersion())
-                .add(mailgunEmailClientConfig.getMailgunApiDomainName())
-                .add("messages");
+        urlBuilder.add(config.getBaseUrl()).add(config.getApiVersion())
+                .add(config.getDomainName())
+                .add(config.getSendEndpoint());
 
         try {
             var httpRequest = HttpRequest.newBuilder()
                     .uri(new URI(urlBuilder.toString()))
                     .version(HttpClient.Version.HTTP_1_1)
-//                    .timeout(Duration.of(1, MILLIS))
                     .timeout(Duration.of(30, SECONDS))
                     .headers(CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-                    .header(AUTHORIZATION, getBasicAuthenticationHeader(mailgunEmailClientConfig.getMailgunApiUsername(), mailgunEmailClientConfig.getMailgunApiPassword()))
+                    .header(AUTHORIZATION, getBasicAuthenticationHeader(config.getApiKey(), config.getApiSecret()))
                     .POST(HttpRequest.BodyPublishers.ofString(form))
                     .build();
 
@@ -89,6 +93,8 @@ public class MailgunEmailClient implements EmailClient<Map<String, String>> {
                 throw new MailgunEmailClientException("no response from email client", SERVICE_UNAVAILABLE);
             }
 
+            log.info("Response {}", response.body());
+
             log.info("Response {} {} status-code: {}", httpRequest.method(), urlBuilder, response.statusCode());
 
             if (OK.value() != response.statusCode()) {
@@ -103,11 +109,11 @@ public class MailgunEmailClient implements EmailClient<Map<String, String>> {
     }
 
     @Override
-    public Map<String, String> buildRequest(EmailRequest request) {
+    public Map<String, String> buildRequest(EmailRequest request, EmailClientConfig config) {
         var mailgunRequest = new HashMap<String, String>();
         var from = ofNullable(request.getName()).map(s ->
-                        format("%s %s", request.getName(), mailgunEmailClientConfig.getMailgunApiFromEmail()))
-                .orElse(mailgunEmailClientConfig.getMailgunApiFromEmail());
+                        format("%s %s", request.getName(), config.getSenderEmail()))
+                .orElse(config.getSenderEmail());
         mailgunRequest.put("from", from);
         mailgunRequest.put("subject", request.getSubject());
         mailgunRequest.put("text", String.join(EMAIL_SEPARATOR, request.getBody()));
