@@ -19,5 +19,8 @@
 ``` 
 
 ## Swagger Doc
-- local: http://localhost:8080/swagger-ui/index.html
-- dev: http://localhost:8080/swagger-ui/index.html
+- http://localhost:8080/swagger-ui/index.html
+- https://erbt-email-service.herokuapp.com/swagger-ui/index.html
+
+## Github
+- https://github.com/erickreevestenorio/email-service
